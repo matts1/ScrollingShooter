@@ -1,0 +1,281 @@
+#pixel collision checking, difficulty level
+import pyglet
+from pyglet.window import key
+from random import randint
+import math
+
+from chars import CharSprite
+from bullets import BulletSprite
+from functions import in_bounds, highscore, detect_collision, Rectangle, DrawHealthBar, force
+from enemy import Enemy, spawn_enemy
+from effects import BackGround, Door, BACK
+
+SPEED = 5
+FLOOR = 220
+
+class Window(pyglet.window.Window):
+    def __init__(self):
+        # Call the superclass's constructor.
+        super(Window, self).__init__()
+        self.set_fullscreen()
+        self.keys = key.KeyStateHandler()
+        self.push_handlers(self.keys)
+        pyglet.clock.schedule_interval(self.update, 0.02)
+#sound
+        self.player = pyglet.media.Player()
+        self.music = pyglet.media.load('sounds/bg2.wav', None, False)
+        self.player.queue(self.music)
+        self.player.eos_action = 'loop'
+        self.player.play()
+        self.gunshot = pyglet.resource.media('sounds/shoot.wav', streaming=False)
+#plane
+        self.char = CharSprite()
+        self.char.x = self.width / 2
+        self.char.y = self.char.floor
+        
+        self.mousex = self.char.x + 50
+        self.mousey = self.char.y + (self.char.height / 2)
+#bullets        
+        self.bullets = []
+        self.can_shoot = 1.0
+        self.leftClick = 0
+#weapons
+        self.weapons = {
+            #name type(0=gun, 1=melee), recoil, damage, ROF (frames between shot)
+            "pistol": [0, 30, 50, 15],
+            "ak47": [0, 20, 35, 10],
+            "sword": [1, 50, 50, 20],
+            "ram": [1, 50, 100, 30]
+        }
+
+        self.selected = ["pistol", "sword"]
+        self.oldrecoil = self.recoil = self.olddir = 0
+        self.scroll = 1
+        self.toaffect = []
+#enemies
+        self.enemies = []
+        self.spawn_time = 31
+#background
+        self.bg = [BACK(), BACK()]
+        self.bg[1].x = self.bg[0].width
+        for bg in self.bg:
+            bg.scale = float(self.height) / bg.height
+        self.totx = self.char.x
+        self.backs = []
+        back = BackGround()
+        for x in xrange(0, self.width + back.width, back.width):
+            back = BackGround()
+            back.x = x
+            self.backs.append(back)
+
+#labels
+        self.score = 0
+        self.scorelabel = pyglet.text.Label("Score: 0",
+            anchor_y = 'top', y = self.height,
+            color = (255, 0, 0, 255), font_size = 16)
+
+        self.credits = [pyglet.text.Label("Graphics: Ruby Yu",
+            anchor_y = 'bottom', y = 60,
+            color = (255, 0, 0, 255), font_size = 12), 
+        pyglet.text.Label("Documentation: Ruby Yu",
+            anchor_y = 'bottom', y = 40,
+            color = (255, 0, 0, 255), font_size = 12),
+        pyglet.text.Label("Programming: Matt Stark",
+            anchor_y = 'bottom', y = 20,
+            color = (255, 0, 0, 255), font_size = 12),
+        pyglet.text.Label("Music: Eitan Muir",
+            anchor_y = 'bottom', y = 0,
+            color = (255, 0, 0, 255), font_size = 12)
+]
+
+        self.time = 0
+        self.health = 100
+#health
+        self.healthbars = []
+###############################################################################
+    def update(self, dt):
+#char
+        self.char.update(self.keys, self.mousex, self.mousey)
+
+        for val, d in {"A": -1, "D": 1}.items():
+            if eval("self.keys[key." + val + "]"):
+                for bg in self.backs:
+                    bg.x -= d * SPEED
+                for enemy in self.enemies:
+                    enemy.x -= d * SPEED
+                for bullet in self.bullets:
+                    bullet.x -= d * SPEED
+        self.time += 10
+#BG
+        if self.backs[0].x > 0:
+            self.backs = [self.backs.pop(-1)] + self.backs
+            self.backs[0].x = self.backs[1].x - self.backs[0].width
+        if self.backs[-1].x + self.backs[-1].width < self.width:
+            self.backs = self.backs + [self.backs.pop(0)]
+            self.backs[-1].x = self.backs[-1].x + self.backs[0].width
+
+#bullets and boundaries
+        bulletremove = []
+        enemyremove = []
+        for bullet in self.bullets:
+            bullet.update()
+            if bullet.y < FLOOR or not in_bounds(bullet, self.height, self.width, bullet.width / 2, bullet.height / 2)[0]:
+                bulletremove.append(bullet)
+
+#enemies
+        self.spawn_time += 1
+        if self.spawn_time > 20:
+            enemy = spawn_enemy(self.width)
+            if enemy:
+                self.enemies.append(enemy)
+                self.spawn_time = 0
+            
+        for enemy in self.enemies:
+            enemy.update(3, self.char.x, self.time)
+#collision
+        self.healthbars = []
+        w = 75
+
+
+        for enemy in self.enemies:
+            for bullet in self.bullets:
+                if detect_collision(bullet.x, bullet.y, enemy):
+                    if bullet not in bulletremove:
+                        bulletremove.append(bullet)
+                    enemy.health -= self.weapons[self.selected[0]][2]
+
+            collideleft = detect_collision(enemy.x - (enemy.width / 2), enemy.y + (enemy.height / 2), self.char)
+            collideright = detect_collision(enemy.x + (enemy.width / 2), enemy.y + (enemy.height / 2), self.char)
+            if collideleft or collideright:
+                self.health -= 15
+                enemy.health = 0
+                self.score -= 15
+
+            enemy.health = max(enemy.health, 0)
+            if enemy.health == 0 and enemy not in enemyremove:
+                enemyremove.append(enemy)
+                self.score += 15
+
+
+            if detect_collision(self.mousex, self.mousey, enemy):
+                self.healthbars.append(DrawHealthBar(enemy.x + (w / 2), enemy.y - 15, w, 15, enemy.health, 1, enemy.maxhealth))
+
+        
+        for enemy in enemyremove:
+            self.enemies.remove(enemy)
+            
+        for bullet in bulletremove:
+            self.bullets.remove(bullet)
+#weapons
+        if self.scroll == 0 or self.keys[key.E]:
+            self.selected = self.selected[::-1]
+            self.char.arm.changeimg(self.selected[0], self.char.x - self.mousex)
+            
+        self.scroll += 1
+        
+        self.recoil = max(0, force(self.recoil, 0, 1.75))
+        mul = 1
+        if self.char.x < self.mousex:
+            mul *= -1
+        if self.weapons[self.selected[0]][0] == 1:
+            mul *= -1
+        self.char.arm.rotation += self.recoil * mul
+
+#weapon upgrades
+        if self.score >= 200 and "pistol" in self.selected:
+            self.selected[self.selected.index("pistol")] = "ak47"
+            self.char.arm.changeimg(self.selected[0], self.char.x - self.mousex)
+
+        if self.score >= 200 and "sword" in self.selected:
+            self.selected[self.selected.index("sword")] = "ram"
+            self.char.arm.changeimg(self.selected[0], self.char.x - self.mousex)
+#us shooting
+        self.can_shoot += 1
+        if self.leftClick and self.can_shoot >= self.weapons[self.selected[0]][3]:
+            if self.weapons[self.selected[0]][0] == 0:
+                bullet = BulletSprite()
+                bullet.x = self.char.arm.x
+                bullet.y = self.char.arm.y
+                bullet.rotation = 90 + self.char.arm.rotation
+                if self.char.x > self.mousex:
+                    bullet.rotation += 180
+            
+                self.bullets.append(bullet)
+                self.gunshot.play()
+
+            self.can_shoot = 0
+            self.recoil += self.weapons[self.selected[0]][1]
+
+        
+        if self.weapons[self.selected[0]][0] == 1:
+            if self.recoil < self.oldrecoil and abs(self.olddif) == self.olddif:
+                #at the end of the swing
+                add = 150
+                if self.char.x > self.mousex:
+                    add *= -1
+                for enemy in self.enemies:
+                    for x in xrange(self.char.x, self.char.x + add, (add / abs(add))* 20):
+                        if detect_collision(x, self.char.y + (self.char.height / 2), enemy):
+                            enemy.fly(20 * (add / abs(add)), 15)
+                            enemy.health -= self.weapons[self.selected[0]][2]
+                            break
+                        
+            self.olddif = self.recoil - self.oldrecoil
+            self.oldrecoil = self.recoil
+            
+#labels
+        self.scorelabel.text = "Score: " + str(self.score)
+
+        if self.health < 0:
+            self.health = 0
+        self.healthbars.append(DrawHealthBar(self.width - 10, self.height - 10, 200, 30, self.health))
+
+#closing window                
+        if self.health <= 0:
+            self.player.pause()
+            pyglet.window.Window.on_close(self)
+            highscore(self.score)
+            
+
+        
+################################################################################
+    def on_draw(self):
+        # Clear what was drawn last frame.
+        self.clear()
+        for bg in self.bg:
+            bg.draw()
+        for back in self.backs:
+            back.draw()
+        for enemy in self.enemies:
+            enemy.draw()
+        for bullet in self.bullets:
+            bullet.draw()
+        self.char.draw()
+        self.char.arm.draw()
+        for bar in self.healthbars:
+            bar.draw()
+
+        self.scorelabel.draw()
+        for credit in self.credits:
+            credit.draw()
+
+    def on_mouse_motion(self, x, y, dx, dy):
+        self.mousex = x
+        self.mousey = y
+    def on_mouse_drag(self, x, y, dx, dy, button, mod):
+        self.mousex = x
+        self.mousey = y
+
+    def on_mouse_press(self, x, y, button, modifiers):
+        if button == 1:
+            self.leftClick = 1
+    def on_mouse_release(self, x, y, button, modifiers):
+        if button == 1:
+            self.leftClick = 0
+    def on_mouse_scroll(self, x, y, scroll_x, scroll_y):
+        self.scroll = 0
+        
+
+          
+win = Window()
+pyglet.app.run()

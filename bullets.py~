@@ -1,0 +1,20 @@
+import pyglet
+from functions import rotate_movement, force
+
+class BulletSprite(pyglet.sprite.Sprite):
+    def __init__(self):
+        image = pyglet.resource.image('images/bullet.png')
+        image.anchor_x = image.width / 2
+        image.anchor_y = image.height / 2
+        self.movex = self.movey = 0
+        super(BulletSprite, self).__init__(image)
+
+    def update(self):
+        if not self.movex:
+            self.movex, self.movey = rotate_movement(self.rotation, self.x, self.y, 3)
+            self.movex -= self.x
+            self.movey -= self.y
+        self.movey = force(self.movey)
+        self.movex = force(self.movex, 0, 0.5)
+        self.x += self.movex
+        self.y += self.movey

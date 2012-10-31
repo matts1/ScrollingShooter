@@ -1,0 +1,74 @@
+import pyglet
+from random import randint
+from functions import rotate_movement, force, pos
+import math
+
+FLOOR = 100
+
+def spawn_enemy(avgsecs, width):
+        if randint(0, 50*avgsecs)== 0:
+            enemy = Enemy()
+            enemy.x = [-enemy.width, width + enemy.width][randint(0, 1)]
+            enemy.y = FLOOR
+            return enemy
+            
+        return 0
+
+def spawn_bullet(kind, chance, enemyx, enemyy, planex = 0, planey = 0):
+    if randint(0, chance) == 0:
+        diffx = planex - enemyx
+        diffy = planey - enemyy
+        bullet = EnemyBullet()
+        bullet.x, bullet.y = enemyx, enemyy
+        if kind == 3:
+            turns = (((diffx**2) + (diffy)**2) ** 0.5) / 4 * 1.5
+            newshot=[bullet, diffx / turns * 3, diffy / turns * 3]
+            return newshot
+        else:
+            return [bullet, 0, -6]
+    return 0
+
+class Enemy(pyglet.sprite.Sprite):
+    def __init__(self):
+        self.img = pyglet.resource.image('images/Enemy/zombie1.png')
+        self.img.anchor_x, self.img.anchor_y = self.img.width / 2, 0
+        super(Enemy, self).__init__(self.img)
+        self.scale = 0.4
+        
+        self.dir = True
+        if self.x < 0:
+            self.dir = False
+        
+        self.yvel = 0
+        self.newforce = 0
+        
+        self.r = True
+        print self.x
+        if self.x < 0:
+            self.r = False
+            print "not there"
+        
+    def update(self, speed, playerx):
+        self.olddir = self.dir
+        
+        if self.r:
+            print self.x
+        
+        diffx = playerx - self.x
+        self.x += (diffx / abs(diffx)) * speed
+        
+        self.dir = pos(diffx)
+        
+        if self.olddir != pos(diffx):
+            self.img = self.img.get_transform(True)
+            super(Enemy, self).__init__(self.img)
+        
+        self.yvel = force(self.yvel, self.newforce)
+        self.y += self.yvel
+        if self.y <= FLOOR:
+            self.y = FLOOR
+            self.wpressed = 0
+            if self.yvel < 0:
+                self.yvel = 0
+
+        return 0
